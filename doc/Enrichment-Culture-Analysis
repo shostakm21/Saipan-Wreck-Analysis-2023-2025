@@ -1,1 +1,1001 @@
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("microbiome")
+install.packages("vegan")
+install.packages("devtools")
+BiocManager::install("microbiome")
 
+install.packages(pkgs=c("BiodiversityR", "vegan","Rcmdr", "MASS", "mgcv","cluster", "RODBC", "rpart", "effects", "multcomp","ellipse", "maptree", "sp", "splancs", "spatial","akima", "nnet", "dismo", "raster", "rgdal", "bootstrap", "PresenceAbsence","maxlike", "gbm", "randomForest", "gam", "earth", "mda","kernlab", "e1071", "glmnet", "sem", "rgl", "relimp","lmtest", "leaps", "Hmisc", "colorspace", "aplpack","abind", "XLConnect", "car", "markdown", "knitr","geosphere", "maptools", "rgeos", "ENMeval", "red"),dependencies=c("Depends", "Imports"))
+```
+
+```{r}
+#All the packages you will need for entire code, some of these could be unnecessary pending what you want to graph
+library(dada2)
+library(BiocManager)
+library(ggplot2); packageVersion("ggplot2")
+library(devtools)
+library(vegan)
+library(dbplyr)
+library(microbiome)
+library(tidyverse)
+library(conflicted)
+library(dplyr)
+library(cowplot)
+
+formatPvalues <- function(pvalue) {
+  ra<- ""
+  if(pvalue <= 0.1) ra<- "."
+  if(pvalue <= 0.05) ra<- "*"
+  if(pvalue <= 0.01) ra<- "**"
+  if(pvalue <= 0.001) ra<- "***"
+  return(ra)
+}
+```
+
+```{r}
+# Path needs to have fastq files unzipped!
+path <- "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/fastq"
+list.files(path)
+
+# Forward and reverse fastq filenames have format: SAMPLENAME_R1_001.fastq and SAMPLENAME_R2_001.fastq
+fnFs <- sort(list.files(path, pattern="_R1_001.fastq", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern="_R2_001.fastq", full.names = TRUE))
+
+# Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq
+sample.names <- sapply(strsplit(basename(fnFs), "_S"), `[`, 1)
+list(sample.names)
+
+#plotQualityProfile(fnFs[1:2])
+#plotQualityProfile(fnRs[1:2])
+
+FWD <- "GTGYCAGCMGCCGCGGTAA"
+REV <- "CCGYCAATTYMTTTRAGTTT"
+trimLeft = c(FWD, REV)
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen = c(280,200), maxN = 0, maxEE = c(2,2), truncQ = 2, rm.phix = TRUE, compress = TRUE, multithread = TRUE, trimLeft = c(19,20))
+head(out)
+
+errF <- learnErrors(filtFs, multithread=TRUE)
+errR <- learnErrors(filtRs, multithread=TRUE)
+
+#plotErrors(errF, nominalQ=TRUE)
+#plotErrors(errR, nominalQ=TRUE)
+
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+
+dadaFs <- dada(filtFs, err=errF, multithread=TRUE)
+#dadaFs[[1]]
+
+dadaRs <- dada(filtRs, err=errR, multithread=TRUE)
+#dadaRs[[1]]
+
+mergers <- mergePairs(dadaFs, filtFs, dadaRs, filtRs, verbose=TRUE)
+#head(mergers[[1]])
+
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+table(nchar(getSequences(seqtab)))
+
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=TRUE, verbose=TRUE)
+dim(seqtab.nochim)
+sum(seqtab.nochim)/sum(seqtab)
+
+#Identified 26085 bimeras out of 26370 input sequences.
+#[1]  37 285
+#[1] 0.8278426
+
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+head(track)
+write.table(track, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/track_sequences.csv", sep=",", quote=F, col.names=NA)
+```
+
+```{r}
+taxa <- assignTaxonomy (seqtab.nochim,"/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/fastq/silva_nr99_v138.2_toGenus_trainset.gz")
+```
+
+```{r}
+taxa.print <- taxa
+rownames(taxa.print) <- NULL
+#head(taxa.print)
+
+asv_seqs <- colnames(seqtab.nochim)
+asv_headers <- vector(dim(seqtab.nochim)[2], mode="character")
+
+for (i in 1:dim(seqtab.nochim)[2]) {
+asv_headers[i] <- paste(">ASV", i, sep="_")
+}
+```
+
+```{r}
+asv_fasta <- c(rbind(asv_headers, asv_seqs))
+
+asv_otu <- t(seqtab.nochim)
+row.names(asv_otu) <- sub(">", "", asv_headers)
+
+asv_tax <- taxa
+row.names(asv_tax) <- sub(">", "", asv_headers)
+
+otu_tax_table <- merge(asv_otu, asv_tax, by=0)
+```
+
+```{r}
+write.table(asv_fasta, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/asv_fasta_enrich.fa")
+write.table(asv_otu, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/asv_otu_enrich.csv", sep=",", quote=F, col.names=NA)
+write.table(asv_tax, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/asv_tax_enrich.csv", sep=",", quote=F, col.names=NA)
+write.table(otu_tax_table, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/asv_otu_tax_enrich.csv", sep=",", quote=F, col.names=NA)
+```
+
+```{r}
+metadata <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/enrichment_metadata.csv")
+
+otu_counts <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/asv_otu_enrich.csv") %>%
+  pivot_longer(-ASV, names_to="sample_id", values_to = "count")
+otu_counts
+
+taxonomy <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/asv_tax_enrich.csv")
+taxonomy
+```
+
+```{r}
+library(phyloseq)
+library(Biostrings)
+```
+
+```{r}
+otu_rel_abund <- inner_join(metadata, otu_counts, by="sample_id") %>%
+  inner_join(., taxonomy, by="ASV") %>%
+  group_by(sample_id) %>%
+  mutate(rel_abund = count / sum(count)) %>%
+  ungroup() %>%
+  pivot_longer(cols=c("Kingdom", "Class", "Order", "Family", "Genus", "ASV"),
+         names_to="level",
+         values_to="taxon")
+otu_rel_abund
+
+write.table(otu_rel_abund, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu_rel_abund_enrich.csv", sep=",", quote=F, col.names=NA)
+
+otu_rel_abund <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu_rel_abund_enrich.csv")
+otu_rel_abund
+```
+
+```{r}
+## Phylum
+otu_rel_abund %>%
+  filter(level=="Phylum") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, y="Mean Relative Abundance (%)") + theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/phylum_stacked_barchart_enrich.tiff", width=15, height=10)
+```
+
+```{r}
+## Class
+otu_rel_abund %>%
+  filter(level=="Class") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, 
+         y="Mean Relative Abundance (%)") +
+    theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/class_stacked_barchart_enrich.tiff", width=15, height=10)
+```
+
+```{r}
+## Order
+otu_rel_abund %>%
+  filter(level=="Order") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, 
+         y="Mean Relative Abundance (%)") +
+    theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/order_stacked_barchart_enrich.tiff", width=15, height=10, limitsize = FALSE)
+
+## Family
+otu_rel_abund %>%
+  filter(level=="Family") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, 
+         y="Mean Relative Abundance (%)") +
+    theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/family_stacked_barchart_enrich.tiff", width=15, height=10, limitsize = FALSE)
+
+## Genus
+otu_rel_abund %>%
+  filter(level=="Genus") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, 
+         y="Mean Relative Abundance (%)") +
+    theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/genus_stacked_barchart_enrich.tiff", width=15, height=10, limitsize = FALSE)
+```
+
+# Relative Abundance % based on Groups
+```{r}
+#change level to what ever taxon level you want
+otu_rel_abund %>%
+  filter(level=="Family") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund), .groups="drop") %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund), .groups="drop") %>%
+  filter(taxon == "Thiomicrospiraceae")
+```
+
+# OTU Table Creating
+```{r}
+df_otu <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/df_asv_otu_enrich.csv")
+df_otu
+```
+
+```{r}
+otu_count_all <- df_otu %>%
+  pivot_longer(-sample_id, names_to = "ASV", values_to = "count")
+otu_count_all
+
+write.table(otu_count_all, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu_count_all_enrich.csv", sep=",", quote=F, col.names=NA)
+
+otu_count_all <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu_count_all_enrich.csv")
+otu_count_all
+
+otu_count_all %>%
+  group_by(sample_id) %>%
+  mutate(total = sum(count)) %>%
+  filter(total > 5000) %>%
+  group_by(ASV) %>%
+  mutate(total=sum(count)) %>% 
+  filter(total != 0) %>%
+  as.data.frame()
+#Going to set threshold at 5000
+```
+
+# NMDS
+```{r}
+nmds_asv_otu_all <- inner_join(metadata, df_otu, by="sample_id")
+nmds_asv_otu_all
+
+write.table(nmds_asv_otu_all, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/nmds_asv_otu_enrich.csv", sep=",", quote=F, col.names=NA)
+
+pc <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/nmds_asv_otu_enrich.csv")
+pc
+
+#make community matrix: extract columns with ASV information
+com <- pc[,6:ncol(pc)]
+com
+
+#turn ASV information into a matrix
+m_com <- as.matrix(com)
+
+#Run NMDS using Bray-Curtis distance
+set.seed(123)
+nmds <- metaMDS(m_com, distance="bray") #stress = nearly zero 
+nmds
+plot(nmds)
+
+#access the specific points data of the NMDS plot & scores
+str(nmds)
+nmds$points
+scores(nmds)
+
+#extract NMDS scores
+data.scores = as.data.frame(scores(nmds)$sites)
+
+#add columns to data frame
+data.scores$sample_id = pc$sample_id
+data.scores$location = pc$location
+data.scores$microbe_type = pc$microbe_type
+data.scores$metal_type = pc$metal_type
+
+head(data.scores)
+```
+
+```{r}
+# By Location
+xx = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
+ geom_point(size = 3, aes(colour = location))+
+  scale_fill_discrete()+
+  ggtitle("NMDS Ordination - Samples Across Site")+
+ theme(axis.text.y = element_text(colour = "black", size = 10, face = "bold"),
+       axis.text.x = element_text(colour = "black", face = "bold", size = 12),
+       legend.text = element_text(size = 12, face ="bold", colour ="black"),
+       legend.position = "right", axis.title.y = element_text(face = "bold", size = 14),
+       axis.title.x = element_text(face = "bold", size = 14, colour = "black"),
+       legend.title = element_text(size = 14, colour = "black", face = "bold"),
+       panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.5),
+       legend.key=element_blank()) +
+ labs(x = "NMDS1", colour = "Wreck Location", y = "NMDS2")
+xx
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/NMDS_all_samples_location.tiff", width = 10, height = 10)
+```
+
+```{r}
+# By Metal Type
+xx = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
+ geom_point(size = 3, aes(colour = metal_type))+
+  scale_fill_discrete()+
+  ggtitle("NMDS Ordination - Samples Across Site")+
+ theme(axis.text.y = element_text(colour = "black", size = 10, face = "bold"),
+       axis.text.x = element_text(colour = "black", face = "bold", size = 12),
+       legend.text = element_text(size = 12, face ="bold", colour ="black"),
+       legend.position = "right", axis.title.y = element_text(face = "bold", size = 14),
+       axis.title.x = element_text(face = "bold", size = 14, colour = "black"),
+       legend.title = element_text(size = 14, colour = "black", face = "bold"),
+       panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.5),
+       legend.key=element_blank()) +
+ labs(x = "NMDS1", colour = "Metal", y = "NMDS2")
+xx
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/NMDS_all_samples_metal_type.tiff", width = 10, height = 10)
+```
+
+```{r}
+# By Microbe Type
+xx = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
+ geom_point(size = 3, aes(colour = microbe_type))+
+  scale_fill_discrete()+
+  ggtitle("NMDS Ordination - Samples Across Site")+
+ theme(axis.text.y = element_text(colour = "black", size = 10, face = "bold"),
+       axis.text.x = element_text(colour = "black", face = "bold", size = 12),
+       legend.text = element_text(size = 12, face ="bold", colour ="black"),
+       legend.position = "right", axis.title.y = element_text(face = "bold", size = 14),
+       axis.title.x = element_text(face = "bold", size = 14, colour = "black"),
+       legend.title = element_text(size = 14, colour = "black", face = "bold"),
+       panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.5),
+       legend.key=element_blank()) +
+ labs(x = "NMDS1", colour = "Microbe Classification", y = "NMDS2")
+xx
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/NMDS_all_samples_microbe.tiff", width = 10, height = 10)
+```
+
+
+# By Metal Type & Location
+```{r}
+xx = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
+ geom_point(size = 3, aes(shape = metal_type, colour = location))+
+  scale_fill_discrete()+
+  ggtitle("NMDS Ordination - Samples Across Site")+
+ theme(axis.text.y = element_text(colour = "black", size = 10, face = "bold"),
+       axis.text.x = element_text(colour = "black", face = "bold", size = 12),
+       legend.text = element_text(size = 12, face ="bold", colour ="black"),
+       legend.position = "right", axis.title.y = element_text(face = "bold", size = 14),
+       axis.title.x = element_text(face = "bold", size = 14, colour = "black"),
+       legend.title = element_text(size = 14, colour = "black", face = "bold"),
+       panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.5),
+       legend.key=element_blank()) +
+ labs(x = "NMDS1", colour = "Location", y = "NMDS2")
+xx
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/NMDS_all_samples_metal_location_type.tiff", width = 10, height = 10)
+```
+
+# Shannon, Richness, Simpson and Evenness
+```{r}
+richness <- function(x){
+  sum(x > 0)}
+
+shannon <- function(x){
+  relabund <- x[x>0]/sum(x)
+  -sum(relabund * log(relabund))
+}
+
+simpson <- function(x){
+  n <- sum(x)
+  sum(x * (x-1) /(n*n-1))
+}
+```
+
+```{r}
+otu_count_all <- otu_count_all %>%
+  group_by(sample_id) %>%
+  summarize(richness = richness(count),
+            shannon = shannon(count), 
+            evenness = shannon/log(richness),
+            n=sum(count))
+
+write.table(otu_count_all, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu_count_all_enrich_diversity_metrics.csv", sep=",", quote=F, col.names=NA)
+
+diversity_metrics <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu_count_all_enrich_diversity_metrics.csv")
+diversity_metrics
+
+write.table(diversity_metrics, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/enrich_diversity_metrics.csv", sep=",", quote=F, col.names=NA)
+```
+
+# Boxplots
+```{r}
+diversity_metrics <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/enrich_diversity_metrics.csv")
+diversity_metrics
+
+diversity_metrics %>%
+  group_by(location) %>%
+  pivot_longer(cols=c(richness, shannon, evenness), 
+               names_to="metric") %>%
+ggplot(aes(x=n, y=value, fill= microbe_type)) +
+  geom_boxplot(outlier.color = "black", outlier.shape = 8, outlier.size = 2) +
+  facet_wrap(~metric, nrow=4, scales="free_y")
+
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/alpha_diversity_metrics_enrich_microbe_type.tiff", width = 10, height = 20)
+
+diversity_metrics %>%
+  group_by(location) %>%
+  pivot_longer(cols=c(richness, shannon, evenness), 
+               names_to="metric") %>%
+ggplot(aes(x=n, y=value, fill= location)) +
+  geom_boxplot(outlier.color = "black", outlier.shape = 8, outlier.size = 2) +
+  facet_wrap(~metric, nrow=4, scales="free_y")
+
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/alpha_diversity_metrics_enrich_sample_location.tiff", width = 10, height = 20)
+
+diversity_metrics %>%
+  group_by(location) %>%
+  pivot_longer(cols=c(richness, shannon, evenness), 
+               names_to="metric") %>%
+ggplot(aes(x=n, y=value, fill= metal_type)) +
+  geom_boxplot(outlier.color = "black", outlier.shape = 8, outlier.size = 2) +
+  facet_wrap(~metric, nrow=4, scales="free_y")
+
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/alpha_diversity_metrics_enrich_metal_type.tiff", width = 10, height = 20)
+
+#Each point represents a sample, (n) Sum of Count, (X) Total number of sequences for each sample & (Y) Value of diversity metric
+```
+
+# ANOSIM Statistical Testing:
+```{r}
+#ANOSIM give you the P value (i.e. significance levels) and a R value (i.e. the strength of the factors on the samples)
+# R value is supposed to vary between 0 and 1 (not between -1 and +1) but you can obtained negative values but they are always close to 0. 
+# R value close to 1 indicates high separation between levels of your factor (e.g. control vs treatment samples), while R value close to 0 indicate no separation between levels of your factor.
+```
+
+```{r}
+pc_ano <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/nmds_asv_otu_enrich.csv")
+pc_ano
+```
+
+```{r}
+# By Location
+com_ano = pc_ano[,6:ncol(pc_ano)]
+m_com_ano = as.matrix(com_ano)
+ano_all = anosim(m_com_ano, pc_ano$location, distance = "bray", permutations = 9999)
+ano_all
+
+# ANOSIM statistic R: 0.02383
+      # Significance: 0.2663
+
+# By Metal Type
+com_ano = pc_ano[,6:ncol(pc_ano)]
+m_com_ano = as.matrix(com_ano)
+ano_all = anosim(m_com_ano, pc_ano$metal_type, distance = "bray", permutations = 9999)
+ano_all
+
+# ANOSIM statistic R: -0.02724 (No group separation)
+      # Significance: 0.5913
+
+# By Microbe Classification
+com_ano = pc_ano[,6:ncol(pc_ano)]
+m_com_ano = as.matrix(com_ano)
+ano_all = anosim(m_com_ano, pc_ano$microbe_type, distance = "bray", permutations = 9999)
+ano_all
+
+# ANOSIM statistic R: 0.9944
+      # Significance: 1e-04
+```
+
+# SIMPER Analysis
+```{r}
+# Biofilm, Sediment and Water Samples
+otu_table_all <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/asv_otu_enrich.csv", header=T, row.names=1, check.names=FALSE)
+
+## Transpose the data to have sample names on rows
+otu.table.diver.all <- t(otu_table_all)
+otu.table.diver.all <- as.data.frame(otu.table.diver.all)
+head(otu.table.diver.all)
+
+otu.table.diver.mdf.all <- as.matrix.data.frame(otu.table.diver.all)
+rownames(otu.table.diver.mdf.all) <- metadata$location
+
+otu.table.diver.bray.all <- vegdist(otu.table.diver.mdf.all, method="bray")
+otu.table.diver.bray.all
+
+write.table(otu.table.diver.all, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu.table.diver.enrich.csv", sep=",", quote=F, col.names=NA)
+```
+
+```{r}
+# Location
+simper <- simper(otu.table.diver.all, metadata$location, permutations=999)
+options(max.print=999999)
+summary(simper)
+dput(simper, file = "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/simp_location_enrich.txt")
+sim <- dget("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/simp_location_enrich.txt")
+summary(sim)
+
+# Metal Type
+simper <- simper(otu.table.diver.all, metadata$metal_type, permutations=999)
+options(max.print=999999)
+summary(simper)
+dput(simper, file = "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/simp_metal_type_enrich.txt")
+sim <- dget("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/simp_metal_type_enrich.txt")
+summary(sim)
+
+# Microbe Classification 
+simper <- simper(otu.table.diver.all, metadata$microbe_type, permutations=999)
+options(max.print=999999)
+summary(simper)
+dput(simper, file = "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/simp_microbe_type_enrich.txt")
+sim <- dget("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/simp_microbe_type_enrich.txt")
+summary(sim)
+```
+
+# FeOB Enrichment Only
+```{r}
+metadata_F <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/metadata_FeOB.csv")
+metadata_F
+
+otu_counts_F <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/asv_otu_FeOB.csv") %>%
+  pivot_longer(-ASV, names_to="sample_id", values_to = "count")
+otu_counts_F
+
+taxonomy_F <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/asv_tax_FeOB.csv")
+taxonomy_F
+
+otu_rel_abund_F <- inner_join(metadata_F, otu_counts_F, by="sample_id") %>%
+  inner_join(., taxonomy_F, by="ASV") %>%
+  group_by(sample_id) %>%
+  mutate(rel_abund = count / sum(count)) %>%
+  ungroup() %>%
+  pivot_longer(cols=c("Kingdom", "Phylum", "Class", "Order", "Family", "ASV"),
+         names_to="level",
+         values_to="taxon")
+otu_rel_abund_F
+
+write.table(otu_rel_abund_F, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu_rel_abund_FeOB.csv", sep=",", quote=F, col.names=NA)
+
+otu_rel_abund_F <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu_rel_abund_FeOB.csv")
+otu_rel_abund_F
+
+## Phylum
+otu_rel_abund_F %>%
+  filter(level=="Phylum") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, y="Mean Relative Abundance (%)") + theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/FeOB/phylum_stacked_barchart_FeOB.tiff", width=15, height=10)
+
+## Class
+otu_rel_abund_F %>%
+  filter(level=="Class") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, 
+         y="Mean Relative Abundance (%)") +
+    theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/FeOB/class_stacked_barchart_FeOB.tiff", width=15, height=10)
+
+## Order
+otu_rel_abund_F %>%
+  filter(level=="Order") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, 
+         y="Mean Relative Abundance (%)") +
+    theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/FeOB/order_stacked_barchart_FeOB.tiff", width=15, height=10, limitsize = FALSE)
+
+## Family
+otu_rel_abund_F %>%
+  filter(level=="Family") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, 
+         y="Mean Relative Abundance (%)") +
+    theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/FeOB/family_stacked_barchart_FeOB.tiff", width=15, height=10, limitsize = FALSE)
+
+## Genus
+otu_rel_abund_F %>%
+  filter(level=="Genus") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, 
+         y="Mean Relative Abundance (%)") +
+    theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/FeOB/genus_stacked_barchart_FeOB.tiff", width=15, height=10, limitsize = FALSE)
+
+df_otu_F <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/df_otu_FeOB.csv")
+df_otu_F
+
+otu_count_all_F <- df_otu_F %>%
+  pivot_longer(-sample_id, names_to = "ASV", values_to = "count")
+otu_count_all_F
+
+write.table(otu_count_all_F, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu_count_all_FeOB.csv", sep=",", quote=F, col.names=NA)
+
+otu_count_all_F <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu_count_all_FeOB.csv")
+otu_count_all_F
+
+otu_count_all_F %>%
+  group_by(sample_id) %>%
+  mutate(total = sum(count)) %>%
+  filter(total > 5000) %>%
+  group_by(ASV) %>%
+  mutate(total=sum(count)) %>% 
+  filter(total != 0) %>%
+  as.data.frame()
+#Going to set threshold at 5000
+
+nmds_asv_otu_FeOB <- inner_join(metadata_F, df_otu_F, by="sample_id")
+nmds_asv_otu_FeOB
+
+write.table(nmds_asv_otu_FeOB, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/nmds_asv_otu_FeOB.csv", sep=",", quote=F, col.names=NA)
+
+pc <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/nmds_asv_otu_FeOB.csv")
+pc
+
+#make community matrix: extract columns with ASV information
+com <- pc[,6:ncol(pc)]
+com
+
+#turn ASV information into a matrix
+m_com <- as.matrix(com)
+
+#Run NMDS using Bray-Curtis distance
+set.seed(123)
+nmds <- metaMDS(m_com, distance="bray") #stress = nearly zero 
+nmds
+plot(nmds)
+
+#access the specific points data of the NMDS plot & scores
+str(nmds)
+nmds$points
+scores(nmds)
+
+#extract NMDS scores
+data.scores = as.data.frame(scores(nmds))
+
+#add columns to data frame
+data.scores$sample_id = pc$sample_id
+data.scores$location = pc$location
+data.scores$microbe_type = pc$microbe_type
+data.scores$metal_type = pc$metal_type
+
+head(data.scores)
+
+# By Location
+xx = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
+ geom_point(size = 3, aes(colour = location))+
+  scale_fill_discrete()+
+  ggtitle("NMDS Ordination - Samples Across Site")+
+ theme(axis.text.y = element_text(colour = "black", size = 10, face = "bold"),
+       axis.text.x = element_text(colour = "black", face = "bold", size = 12),
+       legend.text = element_text(size = 12, face ="bold", colour ="black"),
+       legend.position = "right", axis.title.y = element_text(face = "bold", size = 14),
+       axis.title.x = element_text(face = "bold", size = 14, colour = "black"),
+       legend.title = element_text(size = 14, colour = "black", face = "bold"),
+       panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.5),
+       legend.key=element_blank()) +
+ labs(x = "NMDS1", colour = "Wreck Location", y = "NMDS2")
+xx
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/FeOB/NMDS_FeOB_samples_location.tiff", width = 10, height = 10)
+```
+
+```{r}
+# By Metal Type
+xx = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
+ geom_point(size = 3, aes(colour = metal_type))+
+  scale_fill_discrete()+
+  ggtitle("NMDS Ordination - Samples Across Site")+
+ theme(axis.text.y = element_text(colour = "black", size = 10, face = "bold"),
+       axis.text.x = element_text(colour = "black", face = "bold", size = 12),
+       legend.text = element_text(size = 12, face ="bold", colour ="black"),
+       legend.position = "right", axis.title.y = element_text(face = "bold", size = 14),
+       axis.title.x = element_text(face = "bold", size = 14, colour = "black"),
+       legend.title = element_text(size = 14, colour = "black", face = "bold"),
+       panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.5),
+       legend.key=element_blank()) +
+ labs(x = "NMDS1", colour = "Metal", y = "NMDS2")
+xx
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/FeOB/NMDS_FeOB_samples_metal_type.tiff", width = 10, height = 10)
+
+# By Microbe Type
+xx = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
+ geom_point(size = 3, aes(colour = microbe_type))+
+  scale_fill_discrete()+
+  ggtitle("NMDS Ordination - Samples Across Site")+
+ theme(axis.text.y = element_text(colour = "black", size = 10, face = "bold"),
+       axis.text.x = element_text(colour = "black", face = "bold", size = 12),
+       legend.text = element_text(size = 12, face ="bold", colour ="black"),
+       legend.position = "right", axis.title.y = element_text(face = "bold", size = 14),
+       axis.title.x = element_text(face = "bold", size = 14, colour = "black"),
+       legend.title = element_text(size = 14, colour = "black", face = "bold"),
+       panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.5),
+       legend.key=element_blank()) +
+ labs(x = "NMDS1", colour = "Microbe Classification", y = "NMDS2")
+xx
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/FeOB/NMDS_FeOB_samples_microbe.tiff", width = 10, height = 10)
+
+# By Metal Type & Location
+xx = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
+ geom_point(size = 3, aes(shape = metal_type, colour = location))+
+  scale_fill_discrete()+
+  ggtitle("NMDS Ordination - Samples Across Site")+
+ theme(axis.text.y = element_text(colour = "black", size = 10, face = "bold"),
+       axis.text.x = element_text(colour = "black", face = "bold", size = 12),
+       legend.text = element_text(size = 12, face ="bold", colour ="black"),
+       legend.position = "right", axis.title.y = element_text(face = "bold", size = 14),
+       axis.title.x = element_text(face = "bold", size = 14, colour = "black"),
+       legend.title = element_text(size = 14, colour = "black", face = "bold"),
+       panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.5),
+       legend.key=element_blank()) +
+ labs(x = "NMDS1", colour = "Location", y = "NMDS2")
+xx
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/FeOB/NMDS_FeOB_samples_metal_location_type.tiff", width = 10, height = 10)
+```
+
+# SRB Enrichment Only
+```{r}
+metadata_S <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/metadata_SRB.csv")
+
+otu_counts_S <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/asv_otu_SRB.csv") %>%
+  pivot_longer(-ASV, names_to="sample_id", values_to = "count")
+otu_counts_S
+
+taxonomy_S <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/asv_tax_SRB.csv")
+taxonomy_S
+
+otu_rel_abund_S <- inner_join(metadata_S, otu_counts_S, by="sample_id") %>%
+  inner_join(., taxonomy_S, by="ASV") %>%
+  group_by(sample_id) %>%
+  mutate(rel_abund = count / sum(count)) %>%
+  ungroup() %>%
+  pivot_longer(cols=c("Kingdom", "Phylum", "Class", "Order", "Family", "ASV"),
+         names_to="level",
+         values_to="taxon")
+otu_rel_abund_S
+
+write.table(otu_rel_abund_S, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu_rel_abund_SRB.csv", sep=",", quote=F, col.names=NA)
+
+otu_rel_abund_S <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu_rel_abund_SRB.csv")
+otu_rel_abund_S
+
+## Phylum
+otu_rel_abund_S %>%
+  filter(level=="Phylum") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, y="Mean Relative Abundance (%)") + theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/SRB/phylum_stacked_barchart_SRB.tiff", width=15, height=10)
+
+## Class
+otu_rel_abund_S %>%
+  filter(level=="Class") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, 
+         y="Mean Relative Abundance (%)") +
+    theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/SRB/class_stacked_barchart_SRB.tiff", width=15, height=10)
+
+## Order
+otu_rel_abund_S %>%
+  filter(level=="Order") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, 
+         y="Mean Relative Abundance (%)") +
+    theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/SRB/order_stacked_barchart_SRB.tiff", width=15, height=10, limitsize = FALSE)
+
+## Family
+otu_rel_abund_S %>%
+  filter(level=="Family") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, 
+         y="Mean Relative Abundance (%)") +
+    theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/SRB/family_stacked_barchart_SRB.tiff", width=15, height=10, limitsize = FALSE)
+
+## Genus
+otu_rel_abund_S %>%
+  filter(level=="Genus") %>%
+  group_by(sample_id, location, taxon) %>%
+  summarize(rel_abund = sum(rel_abund)) %>%
+  group_by(location, taxon) %>%
+  summarize(mean_rel_abund = 100*mean(rel_abund)) %>%
+  ggplot(aes(x=location, y=mean_rel_abund, fill=taxon)) +
+  geom_col(aes(x=location, y=mean_rel_abund), colour="black", stroke=10) +
+    labs(x=NULL, 
+         y="Mean Relative Abundance (%)") +
+    theme_classic()
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/SRB/genus_stacked_barchart_SRB.tiff", width=15, height=10, limitsize = FALSE)
+
+df_otu_S <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/df_otu_SRB.csv")
+df_otu_S
+
+otu_count_all_S <- df_otu_S %>%
+  pivot_longer(-sample_id, names_to = "ASV", values_to = "count")
+otu_count_all_S
+
+write.table(otu_count_all_S, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu_count_all_SRB.csv", sep=",", quote=F, col.names=NA)
+
+otu_count_all_S <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/otu_count_all_SRB.csv")
+otu_count_all_S
+
+otu_count_all_S %>%
+  group_by(sample_id) %>%
+  mutate(total = sum(count)) %>%
+  filter(total > 5000) %>%
+  group_by(ASV) %>%
+  mutate(total=sum(count)) %>% 
+  filter(total != 0) %>%
+  as.data.frame()
+#Going to set threshold at 5000
+
+nmds_asv_otu_S <- inner_join(metadata_S, df_otu_S, by="sample_id")
+nmds_asv_otu_S
+
+write.table(nmds_asv_otu_S, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/nmds_asv_otu_SRB.csv", sep=",", quote=F, col.names=NA)
+
+pc <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/nmds_asv_otu_SRB.csv")
+pc
+
+#make community matrix: extract columns with ASV information
+com <- pc[,6:ncol(pc)]
+com
+
+#turn ASV information into a matrix
+m_com <- as.matrix(com)
+
+#Run NMDS using Bray-Curtis distance
+set.seed(123)
+nmds <- metaMDS(m_com, distance="bray") #stress = nearly zero 
+nmds
+plot(nmds)
+
+#access the specific points data of the NMDS plot & scores
+str(nmds)
+nmds$points
+scores(nmds)
+
+#extract NMDS scores
+data.scores = as.data.frame(scores(nmds))
+
+#add columns to data frame
+data.scores$sample_id = pc$sample_id
+data.scores$location = pc$location
+data.scores$microbe_type = pc$microbe_type
+data.scores$metal_type = pc$metal_type
+
+head(data.scores)
+
+# By Location
+xx = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
+ geom_point(size = 3, aes(colour = location))+
+  scale_fill_discrete()+
+  ggtitle("NMDS Ordination - Samples Across Site")+
+ theme(axis.text.y = element_text(colour = "black", size = 10, face = "bold"),
+       axis.text.x = element_text(colour = "black", face = "bold", size = 12),
+       legend.text = element_text(size = 12, face ="bold", colour ="black"),
+       legend.position = "right", axis.title.y = element_text(face = "bold", size = 14),
+       axis.title.x = element_text(face = "bold", size = 14, colour = "black"),
+       legend.title = element_text(size = 14, colour = "black", face = "bold"),
+       panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.5),
+       legend.key=element_blank()) +
+ labs(x = "NMDS1", colour = "Wreck Location", y = "NMDS2")
+xx
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/SRB/NMDS_SRB_samples_location.tiff", width = 10, height = 10)
+
+# By Metal Type
+xx = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
+ geom_point(size = 3, aes(colour = metal_type))+
+  scale_fill_discrete()+
+  ggtitle("NMDS Ordination - Samples Across Site")+
+ theme(axis.text.y = element_text(colour = "black", size = 10, face = "bold"),
+       axis.text.x = element_text(colour = "black", face = "bold", size = 12),
+       legend.text = element_text(size = 12, face ="bold", colour ="black"),
+       legend.position = "right", axis.title.y = element_text(face = "bold", size = 14),
+       axis.title.x = element_text(face = "bold", size = 14, colour = "black"),
+       legend.title = element_text(size = 14, colour = "black", face = "bold"),
+       panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.5),
+       legend.key=element_blank()) +
+ labs(x = "NMDS1", colour = "Metal", y = "NMDS2")
+xx
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/SRB/NMDS_SRB_samples_metal_type.tiff", width = 10, height = 10)
+
+# By Microbe Type
+xx = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
+ geom_point(size = 3, aes(colour = microbe_type))+
+  scale_fill_discrete()+
+  ggtitle("NMDS Ordination - Samples Across Site")+
+ theme(axis.text.y = element_text(colour = "black", size = 10, face = "bold"),
+       axis.text.x = element_text(colour = "black", face = "bold", size = 12),
+       legend.text = element_text(size = 12, face ="bold", colour ="black"),
+       legend.position = "right", axis.title.y = element_text(face = "bold", size = 14),
+       axis.title.x = element_text(face = "bold", size = 14, colour = "black"),
+       legend.title = element_text(size = 14, colour = "black", face = "bold"),
+       panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.5),
+       legend.key=element_blank()) +
+ labs(x = "NMDS1", colour = "Microbe Classification", y = "NMDS2")
+xx
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/SRB/NMDS_SRB_samples_microbe.tiff", width = 10, height = 10)
+
+# By Metal Type & Location
+xx = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
+ geom_point(size = 3, aes(shape = metal_type, colour = location))+
+  scale_fill_discrete()+
+  ggtitle("NMDS Ordination - Samples Across Site")+
+ theme(axis.text.y = element_text(colour = "black", size = 10, face = "bold"),
+       axis.text.x = element_text(colour = "black", face = "bold", size = 12),
+       legend.text = element_text(size = 12, face ="bold", colour ="black"),
+       legend.position = "right", axis.title.y = element_text(face = "bold", size = 14),
+       axis.title.x = element_text(face = "bold", size = 14, colour = "black"),
+       legend.title = element_text(size = 14, colour = "black", face = "bold"),
+       panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.5),
+       legend.key=element_blank()) +
+ labs(x = "NMDS1", colour = "Location", y = "NMDS2")
+xx
+ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/SRB/NMDS_SRB_samples_metal_location_type.tiff", width = 10, height = 10)
+```
