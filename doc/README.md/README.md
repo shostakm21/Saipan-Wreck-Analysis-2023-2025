@@ -1,3 +1,4 @@
+# Chapter 3: Enrichment Culture Analysis
 ```{r}
 if (!requireNamespace("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
@@ -9,7 +10,7 @@ BiocManager::install("microbiome")
 install.packages(pkgs=c("BiodiversityR", "vegan","Rcmdr", "MASS", "mgcv","cluster", "RODBC", "rpart", "effects", "multcomp","ellipse", "maptree", "sp", "splancs", "spatial","akima", "nnet", "dismo", "raster", "rgdal", "bootstrap", "PresenceAbsence","maxlike", "gbm", "randomForest", "gam", "earth", "mda","kernlab", "e1071", "glmnet", "sem", "rgl", "relimp","lmtest", "leaps", "Hmisc", "colorspace", "aplpack","abind", "XLConnect", "car", "markdown", "knitr","geosphere", "maptools", "rgeos", "ENMeval", "red"),dependencies=c("Depends", "Imports"))
 ```
 
-# Load Pacakges
+## Load Pacakges
 ```{r}
 #All the packages you will need for entire code, some of these could be unnecessary pending what you want to graph
 library(dada2)
@@ -170,7 +171,7 @@ otu_rel_abund <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_20
 otu_rel_abund
 ```
 
-# Relative Abundance Based on Groups
+## Relative Abundance Based on Groups
 ```{r}
 #change LEVEL to what ever taxon level you want, group_by factors you want to compare, and taxon == to taxon of interest
 #change GROUP_BY(XX) %>% to just look at taxon as a whole
@@ -183,7 +184,7 @@ otu_rel_abund %>%
   filter(taxon == "Thiomicrospira")
 ```
 
-# Enrich Barcharts: FeOB + SRB
+### Enrich Barcharts: FeOB + SRB
 ```{r}
 ## Phylum
 otu_rel_abund %>%
@@ -252,7 +253,7 @@ otu_rel_abund %>%
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/genus_stacked_barchart_enrich.tiff", width=13, height=10, limitsize = FALSE)
 ```
 
-# Phyloseq: Enrich
+## Phyloseq: Enrich
 ```{r}
 library(phyloseq)
 library(Biostrings)
@@ -316,7 +317,7 @@ plot_bar(ps, fill = "Family") +
   facet_grid(~metal_type)
 ```
 
-# Boxplots Raxa Rank
+## Boxplots Raxa Rank
 ```{r}
 require(dplyr) #required for data table filtering
 require(ggplot2) #require for plotting
@@ -349,7 +350,7 @@ box_plot #prints box plot to standard out
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/Taxa_Rank_Enrich_Family.tiff", plot=box_plot, device=NULL, path=NULL, scale=1, width=15, height=7, dpi=900, limitsize=TRUE)
 ```
 
-# OTU Table Creating
+## OTU Table Creating
 ```{r}
 df_otu <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/df_asv_otu_enrich.csv")
 df_otu
@@ -376,7 +377,7 @@ otu_count_all %>%
 #Going to set threshold at 5000
 ```
 
-# NMDS
+## NMDS
 ```{r}
 nmds_asv_otu_all <- inner_join(metadata, df_otu, by="sample_id")
 nmds_asv_otu_all
@@ -473,7 +474,7 @@ xx
 #ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/NMDS_enrich_microbe.tiff", width = 15, height = 10)
 ```
 
-# By Metal Type & Location
+### By Metal Type & Location
 ```{r}
 xx = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
  geom_point(size = 3, aes(shape = metal_type, colour = location))+
@@ -492,7 +493,7 @@ xx
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/NMDS_all_samples_metal_location_type.tiff", width = 10, height = 10)
 ```
 
-# Shannon, Richness, Simpson and Evenness: All Enrich
+## Shannon, Richness, Simpson and Evenness: All Enrich
 ```{r}
 richness <- function(x){
   sum(x > 0)}
@@ -524,7 +525,7 @@ diversity_metrics
 write.table(diversity_metrics, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/enrich_diversity_metrics.csv", sep=",", quote=F, col.names=NA)
 ```
 
-# Boxplots: All Enrich
+### Boxplots: All Enrich
 ```{r}
 diversity_metrics <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/enrich_diversity_metrics.csv")
 diversity_metrics
@@ -566,7 +567,7 @@ ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/alpha_di
 #Each point represents a sample, (n) Sum of Count, (X) Total number of sequences for each sample & (Y) Value of diversity metric
 ```
 
-# ANOSIM Statistical Testing:
+## ANOSIM Statistical Testing:
 ```{r}
 #ANOSIM give you the P value (i.e. significance levels) and a R value (i.e. the strength of the factors on the samples)
 # R value is supposed to vary between 0 and 1 (not between -1 and +1) but you can obtained negative values but they are always close to 0. 
@@ -611,7 +612,7 @@ ano_all
       # Significance: 1e-04
 ```
 
-# SIMPER Analysis
+## SIMPER Analysis
 ```{r}
 library(vegan)
 
@@ -686,7 +687,7 @@ simper_df3 <- as.data.frame(simper_result3[[1]])
 write.xlsx(simper_df3, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/SIMPER_results_microbe.xlsx", rowNames = TRUE)
 ```
 
-# FeOB Enrichment Only
+## FeOB Enrichment Only
 ```{r}
 metadata_F <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/metadata_FeOB.csv")
 metadata_F
@@ -714,7 +715,7 @@ otu_rel_abund_F <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_
 otu_rel_abund_F
 ```
 
-# Feob Barcharts
+### Feob Barcharts
 ```{r}
 ## Phylum
 otu_rel_abund_F %>%
@@ -789,7 +790,7 @@ otu_rel_abund_F %>%
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/FeOB/genus_stacked_barchart_FeOB.tiff", width=15, height=10, limitsize = FALSE)
 ```
 
-# Phyloseq: FeOB ONLY
+## Phyloseq: FeOB ONLY
 ```{r}
 library(phyloseq)
 library(Biostrings)
@@ -850,7 +851,7 @@ plot_bar(psF, fill = "Family") +
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/FeOB/metal_location_bar.tiff", width=15, height=10, limitsize = FALSE)
 ```
 
-# Boxplots Raxa Rank
+### Boxplots Raxa Rank
 ```{r}
 require(dplyr) #required for data table filtering
 require(ggplot2) #require for plotting
@@ -883,7 +884,7 @@ box_plot #prints box plot to standard out
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/Taxa_Rank_FEOB_Family.tiff", plot=box_plot, device=NULL, path=NULL, scale=1, width=15, height=7, dpi=900, limitsize=TRUE)
 ```
 
-# FeOB Relative Abundance Based on Groups
+## FeOB Relative Abundance Based on Groups
 ```{r}
 #change LEVEL to what ever taxon level you want, group_by factors you want to compare, and taxon == to taxon of interest
 otu_rel_abund_F %>%
@@ -961,7 +962,7 @@ data.scores$metal_type = pc$metal_type
 head(data.scores)
 ```
 
-## NMDS: FeOB
+### NMDS: FeOB
 ```{r}
 # By Location
 xxF = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
@@ -1032,7 +1033,7 @@ xx
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/FeOB/NMDS_FeOB_samples_metal_location_type.tiff", width = 10, height = 10)
 ```
 
-# Shannon, Richness, Eveness: FeOB
+## Shannon, Richness, Eveness: FeOB
 ```{r}
 otu_count_F <- otu_count_F %>%
   group_by(sample_id) %>%
@@ -1049,7 +1050,7 @@ diversity_metrics_F
 write.table(diversity_metrics_F, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/enrich_diversity_metrics_FEOB.csv", sep=",", quote=F, col.names=NA)
 ```
 
-# Boxplots: FEOB
+### Boxplots: FEOB
 ```{r}
 diversity_metrics_F <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/enrich_diversity_metrics_FEOB.csv")
 diversity_metrics_F
@@ -1106,7 +1107,7 @@ ano_all
 #      Significance: 0.1666
 ```
 
-# SRB Enrichment Only
+## SRB Enrichment Only
 ```{r}
 metadata_S <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/metadata_SRB.csv")
 
@@ -1203,7 +1204,7 @@ otu_rel_abund_S %>%
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/SRB/genus_stacked_barchart_SRB.tiff", width=15, height=10, limitsize = FALSE)
 ```
 
-# Phyloseq: SRB ONLY
+## Phyloseq: SRB ONLY
 ```{r}
 library(phyloseq)
 library(Biostrings)
@@ -1264,7 +1265,7 @@ plot_bar(psS, fill = "Family") +
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/FeOB/metal_location_bar.tiff", width=15, height=10, limitsize = FALSE)
 ```
 
-# Boxplots Taxa Rank
+### Boxplots Taxa Rank
 ```{r}
 require(dplyr) #required for data table filtering
 require(ggplot2) #require for plotting
@@ -1297,7 +1298,7 @@ box_plot #prints box plot to standard out
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/Taxa_Rank_SRB_Family.tiff", plot=box_plot, device=NULL, path=NULL, scale=1, width=15, height=7, dpi=900, limitsize=TRUE)
 ```
 
-# SRB Relative Abundance Based on Groups
+## SRB Relative Abundance Based on Groups
 ```{r}
 #change LEVEL to what ever taxon level you want, group_by factors you want to compare, and taxon == to taxon of interest
 otu_rel_abund_S %>%
@@ -1375,7 +1376,7 @@ data.scores$metal_type = pc$metal_type
 head(data.scores)
 ```
 
-## NMDS: SRB
+### NMDS: SRB
 ```{r}
 # By Location
 xxS = ggplot(data.scores, aes(x = NMDS1, y = NMDS2)) +
@@ -1446,8 +1447,8 @@ xx
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/SRB/NMDS_SRB_samples_metal_location_type.tiff", width = 10, height = 10)
 ```
 
+## Shannon, Richness, Eveness: FeOB
 ```{r}
-# Shannon, Richness, Eveness: FeOB
 otu_count_S <- otu_count_all_S %>%
   group_by(sample_id) %>%
   summarize(richness = richness(count),
@@ -1463,7 +1464,7 @@ diversity_metrics_S
 write.table(diversity_metrics_S, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/enrich_diversity_metrics_SRB.csv", sep=",", quote=F, col.names=NA)
 ```
 
-# Boxplots: SRB
+### Boxplots: SRB
 ```{r}
 diversity_metrics_S <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/enrich_diversity_metrics_SRB.csv")
 diversity_metrics_S
@@ -1489,7 +1490,7 @@ summary(anovaS3)
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/FEOB/alpha_diversity_metrics_SRB_metal_location.tiff", width = 7, height = 5)
 ```
 
-# ANOSIM: SRB
+## ANOSIM: SRB
 ```{r}
 pc_ano <- read.csv("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/data/nmds_asv_otu_S.csv")
 pc_ano
@@ -1519,13 +1520,13 @@ ano_all
 #      Significance: 0.7774
 ```
 
-# Combining Figures
+## Combining Figures
 ```{r}
 install.packages("patchwork")
 library(patchwork)
 ```
 
-# Barcharts
+### Barcharts
 ```{r}
 # Phylum
 p1_Fbar_phylum <- otu_rel_abund_F %>%
@@ -1603,7 +1604,7 @@ p2_Sbar_family <- otu_rel_abund_S %>%
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/Combined_Figures/family_metal_SRB_FeOB.tiff", width = 10, height = 10)
 ```
 
-# Alpha Diveristy Boxplots
+### Alpha Diveristy Boxplots
 ```{r}
 p1_FeOB_box <- diversity_metrics_F %>%
   group_by(metal_type) %>%
@@ -1626,7 +1627,7 @@ ggplot(aes(x=n, y=value, fill= metal_type)) +
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/Combined_Figures/alpha_diversity_metrics_SRB_FeOB_metal.tiff", width = 10, height = 7)
 ```
 
-# Taxa Rank
+### Taxa Rank
 ```{r}
 p1_FeOB_rank <- box_plot <- ggplot(psF_family, aes(x=microbe_type, y=Abundance, fill=Family)) +
 	geom_boxplot() +
@@ -1657,7 +1658,7 @@ box_plot #prints box plot to standard out
 ggsave("/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/Combined_Figures/SRB_FeOB_metal_rank.tiff", width = 10, height = 10)
 ```
 
-# Taxa Rank Year
+### Taxa Rank Year
 ```{r}
 install.packages("magick")
 library(magick)
@@ -1670,3 +1671,4 @@ combined <- image_append(c(img23, img25))
 
 image_write(combined, "/Users/maggieshostak/Desktop/Enrichment_Sequencing_2026/results/Combined_Figures/Taxa_Rank_23_25.tiff")
 ```
+
